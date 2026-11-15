@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Launch Radar — pre-token protocols ranked by implied launch value</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 48 48" aria-hidden="true">
+      <circle cx="24" cy="24" r="21" fill="none" stroke="#f0b429" stroke-width="2" opacity="0.35"/>
+      <circle cx="24" cy="24" r="14" fill="none" stroke="#f0b429" stroke-width="2" opacity="0.6"/>
+      <circle cx="24" cy="24" r="7" fill="none" stroke="#f0b429" stroke-width="2"/>
+      <circle cx="24" cy="24" r="2.6" fill="#f0b429"/>
+      <circle cx="33" cy="15" r="2.4" fill="#3fb68b"/>
+      <circle cx="15" cy="31" r="2" fill="#58a6ff"/>
+    </svg>
+    <div>
+      <h1>Token Launch Radar</h1>
+      <p class="tagline">Pre-token protocols ranked by what a launch would be worth — and how to farm each one.</p>
+    </div>
+  </div>
+  <div class="topmeta">
+    <span class="chip" id="asof"></span>
+    <span class="chip accent" id="modelver"></span>
+  </div>
+</header>
+
+<section class="kpis" id="kpis"></section>
+
+<nav class="tabs">
+  <button data-view="board" class="tab active">The board</button>
+  <button data-view="cal" class="tab">Calibration — the traded set</button>
+  <button data-view="method" class="tab">How the radar works</button>
+</nav>
+
+<main>
+  <section id="view-board">
+    <div class="controls">
+      <input id="q" type="search" placeholder="Search a protocol or category…">
+      <select id="fcat"><option value="">All categories</option></select>
+      <select id="fchain"><option value="">All chains</option></select>
+      <label class="check"><input type="checkbox" id="fwl"> Watchlist only</label>
+      <select id="fsort">
+        <option value="implied">Sort: implied value</option>
+        <option value="tvl">Sort: TVL</option>
+        <option value="growth">Sort: 7-day growth</option>
+        <option value="age">Sort: longest tokenless</option>
+        <option value="multiple">Sort: implied ×TVL</option>
+      </select>
+    </div>
+    <div class="sandbox">
+      <span class="sandbox-label">Model sandbox — re-rank the board live:</span>
+      <label>Growth weight <input id="sgw" type="range" min="0" max="1" step="0.05" value="0.5"><b id="sgwv">0.50</b></label>
+      <label>Value scale <input id="sscale" type="range" min="0.25" max="3" step="0.05" value="1"><b id="sscalev">1.00×</b></label>
+      <button id="sreset" class="mini">Reset to the stated model</button>
+      <span class="sandbox-note">board.json always carries the stated model; the sandbox is for your own what-ifs.</span>
+    </div>
+    <p class="shown" id="shown"></p>
+    <div class="tablewrap">
+      <table id="board">
+        <thead><tr>
+          <th class="num">#</th><th>Protocol</th><th>Category</th><th>Chains</th>
+          <th class="num">TVL</th><th class="num">7d</th><th class="num">Implied value</th><th class="num">×TVL</th><th></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="view-detail" hidden></section>
+  <section id="view-cal" hidden></section>
+  <section id="view-method" hidden></section>
+</main>
+
+<footer>
+  <p>Implied value is this radar's own claim, derived only from the sealed snapshot's figures; it is not a
+  prediction that a token will be issued, or when. A protocol here <em>records</em> no token — its record may
+  be incomplete. Farm plans are starting points, not financial advice: verify every step on the protocol's
+  own site before moving funds.</p>
+</footer>
+
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
