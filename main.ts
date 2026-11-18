@@ -1,4 +1,4 @@
-// Token launch radar (token-radar-01 entry, model radar-2, Node 22, standard library only).
+// Token launch radar (token-radar-01 entry, model radar-3, Node 22, standard library only).
 //
 // The program reads the sealed snapshot from /input/snapshot.json (or --input <file|dir>), scores
 // every pre-token protocol with the calibrated model in lib/model.ts, writes the ranked board to
