@@ -29,34 +29,28 @@ function fmtAge(days) {
   return (days / 365.25).toFixed(1) + ' years';
 }
 
-/* Evidence tiers: how much of the market's own record stands behind a row's price. */
-const TIERS = {
-  deep: { label: 'Deep', color: '#3fb68b', note: '8+ traded peers in its category' },
-  standard: { label: 'Standard', color: '#58a6ff', note: '3–7 traded peers in its category' },
-  thin: { label: 'Thin', color: '#f0b429', note: '1–2 traded peers — its family carries the price' },
-  market: { label: 'Market', color: '#8b98a5', note: 'no traded peer — priced from its family or the market' },
-};
-const FAMCOLORS = {
-  'Credit': '#58a6ff', 'Spot exchange': '#3fb68b', 'Derivatives': '#bc8cff',
-  'Capital management': '#f0b429', 'Staking': '#39c5cf', 'Bridging': '#e5534b',
-  'Money': '#e6edf3', 'Networks & services': '#8b98a5',
-};
-const famColor = (f) => FAMCOLORS[f] || '#5a6a7d';
+/* Peer counts: how many of the market's traded protocols stand behind a row's price. The board
+   states the count itself, not a verdict on it. */
+function peerText(n) {
+  if (n === 0) return 'market median — no traded peers in category';
+  return n + ' traded peer' + (n === 1 ? '' : 's') + ' in category';
+}
+const peerColor = (n) => (n >= 8 ? '#3fb68b' : n >= 3 ? '#58a6ff' : n >= 1 ? '#f0b429' : '#8b98a5');
 
 /* The sandbox model: a row's implied value under a momentum weight and a value scale, from the
    components the stated model stored on the row. At the stated weights it returns the board's own
    figures exactly, so the default view is board.json itself. */
-const state = { q: '', cat: '', chain: '', band: '', wl: false, sort: 'implied', gw: M.momentum_weight, scale: 1 };
+const state = { q: '', cat: '', chain: '', band: '', wl: false, sort: 'implied', gw: M.growth_weight, scale: 1 };
 function sandboxImplied(row, w, scale) {
   const m = row.model;
-  return Math.max(1, Math.round(row.tvl_usd * m.base_multiple * scale * (1 + w * m.growth_root) * m.maturity_multiplier * m.breadth_multiplier));
+  return Math.max(1, Math.round(row.tvl_usd * m.base_multiple * scale * (1 + (m.growth_pct / 100) * w) * m.maturity_multiplier * m.breadth_multiplier));
 }
 function shown(row) {
-  if (state.gw === M.momentum_weight && state.scale === 1) {
+  if (state.gw === M.growth_weight && state.scale === 1) {
     return { v: row.implied_value_usd, lo: row.implied_low_usd, hi: row.implied_high_usd };
   }
   const m = row.model;
-  const f = state.scale * (1 + state.gw * m.growth_root) / (1 + M.momentum_weight * m.growth_root);
+  const f = state.scale * (1 + (m.growth_pct / 100) * state.gw) / (1 + (m.growth_pct / 100) * M.growth_weight);
   return {
     v: sandboxImplied(row, state.gw, state.scale),
     lo: Math.max(1, Math.round(row.implied_low_usd * f)),
@@ -77,7 +71,6 @@ $('kpis').innerHTML = [
 ].map(([b, s]) => `<div class="kpi"><b>${b}</b><span>${s}</span></div>`).join('');
 
 $('spot').innerHTML = R.rows.slice(0, 5).map((r) => {
-  const t = TIERS[r.model.tier];
   return `<div class="spotcard" data-slug="${esc(r.slug)}">
     <span class="rk">#${r.rank} ON THE BOARD</span>
     <h3>${esc(r.name)}</h3>
@@ -87,15 +80,16 @@ $('spot').innerHTML = R.rows.slice(0, 5).map((r) => {
     <div class="meta">
       <span class="badge">${fmtPct(r.change_7d)} in 7d</span>
       <span class="badge">tokenless ${fmtAge(r.age_days)}</span>
-      <span class="badge"><span class="dot" style="background:${t.color}"></span>${t.label} evidence</span>
+      <span class="badge"><span class="dot" style="background:${peerColor(r.model.category_peers)}"></span>${peerText(r.model.category_peers)}</span>
       ${r.on_watchlist ? '<span class="badge gold">★ watchlist</span>' : ''}
     </div></div>`;
 }).join('');
 for (const c of $('spot').children) c.addEventListener('click', () => { location.hash = '#/p/' + c.dataset.slug; });
 
-$('tierlegend').innerHTML =
-  '<span><b>Evidence</b> — how much of the market\u2019s record prices a row:</span>' +
-  Object.values(TIERS).map((t) => `<span><span class="dot" style="background:${t.color}"></span><b>${t.label}</b> — ${t.note}</span>`).join('');
+$('peerlegend').innerHTML =
+  '<span><b>Peers</b> — the traded protocols in a row\u2019s own category whose market-cap / TVL ratios set its price, ' +
+  'each shrunk toward the whole market\u2019s median with ' + M.shrink_peers + ' phantom peers. A row priced from few peers is not ' +
+  'hidden or relabelled: its count stands on the row, and its stated range widens with the peers\u2019 spread.</span>';
 
 /* ---------- board ---------- */
 const cats = [...new Set(R.rows.map((r) => r.category).filter(Boolean))].sort();
@@ -128,10 +122,9 @@ function renderBoard() {
   const rows = visibleRows();
   $('shown').textContent =
     `Showing ${rows.length} of ${R.stats.board_size} ranked protocols` +
-    (state.gw !== M.momentum_weight || state.scale !== 1 ? ' — re-ranked under your sandbox weights; ranks and values are yours, not the board\u2019s.' : '.');
+    (state.gw !== M.growth_weight || state.scale !== 1 ? ' — re-ranked under your sandbox weights; ranks and values are yours, not the board\u2019s.' : '.');
   $('rows').innerHTML = rows.map((r, i) => {
     const s = shown(r);
-    const t = TIERS[r.model.tier];
     return `<tr data-slug="${esc(r.slug)}">
       <td class="num rank">${i + 1}</td>
       <td class="name"><b>${esc(r.name)}</b>${r.on_watchlist ? '<span class="wl">★ watchlist</span>' : ''}<span class="slug">${esc(r.slug)}</span></td>
@@ -141,7 +134,7 @@ function renderBoard() {
       <td class="num ${r.change_7d === null ? '' : r.change_7d >= 0 ? 'pos' : 'neg'}">${fmtPct(r.change_7d)}</td>
       <td class="num implied"><b>${fmtUsd(s.v)}</b><span class="sub">${fmtUsd(s.lo)} – ${fmtUsd(s.hi)}</span></td>
       <td class="num">${fmtMult(s.v / r.tvl_usd)}</td>
-      <td class="ev"><span class="dot" style="background:${t.color}"></span><b>${t.label}</b> · ${r.model.category_peers} peer${r.model.category_peers === 1 ? '' : 's'}</td>
+      <td class="ev"><span class="dot" style="background:${peerColor(r.model.category_peers)}"></span>${r.model.category_peers === 0 ? 'market median' : `<b>${r.model.category_peers}</b> traded peer${r.model.category_peers === 1 ? '' : 's'}`}</td>
       <td class="arrow">›</td></tr>`;
   }).join('');
   for (const tr of $('rows').children) tr.addEventListener('click', () => { location.hash = '#/p/' + tr.dataset.slug; });
@@ -159,7 +152,7 @@ for (const th of document.querySelectorAll('#board th[data-sort]')) {
 $('sgw').addEventListener('input', (e) => { state.gw = Number(e.target.value); $('sgwv').textContent = state.gw.toFixed(2); renderBoard(); });
 $('sscale').addEventListener('input', (e) => { state.scale = Number(e.target.value); $('sscalev').textContent = state.scale.toFixed(2) + '×'; renderBoard(); });
 $('sreset').addEventListener('click', () => {
-  state.gw = M.momentum_weight; state.scale = 1;
+  state.gw = M.growth_weight; state.scale = 1;
   $('sgw').value = state.gw; $('sgwv').textContent = state.gw.toFixed(2);
   $('sscale').value = 1; $('sscalev').textContent = '1.00×';
   renderBoard();
@@ -185,18 +178,14 @@ function renderDetail(slug) {
   const el = $('view-detail');
   if (!r) { el.innerHTML = '<p class="note">No ranked protocol by that name in this snapshot.</p>'; return; }
   const cal = R.categories.find((c) => c.category === (r.category ?? 'Uncategorised'));
-  const fam = cal && cal.family ? R.families.find((f) => f.family === cal.family) : null;
   const m = r.model;
-  const t = TIERS[m.tier];
-  const bounded = cal && cal.median_ratio !== null && fam &&
-    (cal.median_ratio > M.influence_cap * fam.estimate || cal.median_ratio < fam.estimate / M.influence_cap);
   el.innerHTML = `
     <button class="mini back" onclick="location.hash='#/'">← Back to the board</button>
     <div class="dhead"><h2>${esc(r.name)}</h2>
       ${r.on_watchlist ? '<span class="badge gold">★ On the house watchlist</span>' : '<span class="badge">Found by the radar, below the watchlist floor</span>'}
       <span class="badge">${esc(r.category ?? 'Uncategorised')}</span>
       <span class="badge">Records no token</span>
-      <span class="badge"><span class="dot" style="background:${t.color}"></span>${t.label} evidence</span></div>
+      <span class="badge"><span class="dot" style="background:${peerColor(m.category_peers)}"></span>${peerText(m.category_peers)}</span></div>
     <div class="stats">
       <div class="stat"><b>${fmtUsd(r.implied_value_usd)}</b><span>Implied launch value (stated model)</span></div>
       <div class="stat"><b>${fmtUsd(r.implied_low_usd)} – ${fmtUsd(r.implied_high_usd)}</b><span>Stated range, from the peers\u2019 spread</span></div>
@@ -208,22 +197,22 @@ function renderDetail(slug) {
       <div class="card"><h3>Why this value — the model, step by step</h3>
         <p class="formula">implied = TVL ${fmtUsd(r.tvl_usd)} × price ${fmtMult(m.base_multiple)} × momentum ${fmtMult(m.growth_multiplier)} × endurance ${fmtMult(m.maturity_multiplier)} × reach ${fmtMult(m.breadth_multiplier)} = ${fmtUsd(r.implied_value_usd)}</p>
         ${rangeBar('Price (range, log scale)', m.multiple_low, m.multiple_high, m.base_multiple)}
-        ${bar('Momentum adjustment', (m.growth_multiplier - 0.5) / 1.2, fmtMult(m.growth_multiplier))}
+        ${bar('Momentum adjustment', (m.growth_multiplier - 0.7) / 0.6, fmtMult(m.growth_multiplier))}
         ${bar('Endurance adjustment', (m.maturity_multiplier - M.maturity_floor) / M.maturity_range, fmtMult(m.maturity_multiplier))}
-        ${bar('Reach adjustment', (m.breadth_multiplier - 1) / (M.breadth_coef * (Math.sqrt(M.breadth_chain_cap) - 1)), fmtMult(m.breadth_multiplier))}
-        <h3 style="margin-top:18px">Where the price comes from — three levels of the market\u2019s own record</h3>
+        ${bar('Reach adjustment', (m.breadth_multiplier - 1) / (M.breadth_per_chain * M.breadth_max_extra_chains), fmtMult(m.breadth_multiplier))}
+        <h3 style="margin-top:18px">Where the price comes from — the category\u2019s own record, shrunk toward the market</h3>
         <table class="mini"><thead><tr><th>Level</th><th class="num">Peers</th><th class="num">Cap / TVL</th></tr></thead><tbody>
           <tr><td>Its category — ${esc(r.category ?? 'Uncategorised')}</td><td class="num">${cal ? cal.peers : 0}</td><td class="num">${cal && cal.median_ratio !== null ? fmtMult(cal.median_ratio) + ' median' : '—'}</td></tr>
-          ${fam ? `<tr><td>Its family — ${esc(fam.family)}</td><td class="num">${fam.peers}</td><td class="num">${fmtMult(fam.estimate)} estimate</td></tr>` : ''}
           <tr><td>The whole market</td><td class="num">${R.stats.peers}</td><td class="num">${fmtMult(R.stats.global_multiple)} median</td></tr>
           <tr><td><b>Multiple used</b> (range ${cal ? fmtMult(cal.multiple_low) + ' – ' + fmtMult(cal.multiple_high) : ''})</td><td class="num"></td><td class="num"><b>${fmtMult(m.base_multiple)}</b></td></tr>
         </tbody></table>
-        <p>The category\u2019s own median is shrunk toward its family\u2019s estimate by its peer count (${M.shrink_category} phantom
-        peers), and the family toward the market (${M.shrink_family}). ${bounded ? `Here the category\u2019s own median prints
-        ${fmtMult(cal.median_ratio)}, beyond ${M.influence_cap}× its family\u2019s price, so bounded influence reads it at the cap:
-        one peer print never carries a price on its own. ` : ''}Momentum uses the week\u2019s TVL change
-        (${fmtPct(r.change_7d)}), dampened by a square root and clamped to ${M.growth_floor}%…+${M.growth_cap}%. Endurance counts the
-        tokenless run on a log scale; reach adds ${Math.round(M.breadth_coef * 100)}% per square root of chains.</p>
+        <p>The category\u2019s own median is shrunk toward the market\u2019s median by its peer count (${M.shrink_peers} phantom
+        peers): ${cal && cal.peers > 0 ? `here ${cal.peers} traded peer${cal.peers === 1 ? '' : 's'} carry the category\u2019s median of
+        ${cal.median_ratio !== null ? fmtMult(cal.median_ratio) : '—'} most of the way, and the market pulls it the rest. ` : `here the category has no
+        traded peer of its own, so the market\u2019s median is the price. `}Momentum takes the week\u2019s TVL change
+        (${fmtPct(r.change_7d)}) at half weight, clamped to ${M.growth_floor}%…+${M.growth_cap}%. Endurance rises from
+        ${M.maturity_floor} to ${M.maturity_floor + M.maturity_range} across ${M.maturity_days} tokenless days; reach adds
+        ${Math.round(M.breadth_per_chain * 100)}% for each extra chain, up to ${M.breadth_max_extra_chains}.</p>
         <div class="sens">
           <span class="badge">Board rank <b>#${r.rank}</b> of ${R.stats.board_size}</span>
           <span class="badge">If momentum counted for nothing: <b>#${rankAt(r, 0)}</b></span>
@@ -232,8 +221,8 @@ function renderDetail(slug) {
       <div class="card"><h3>The traded peers behind the price</h3>
         ${cal && cal.comps.length ? `<table class="mini"><thead><tr><th>Peer</th><th class="num">TVL</th><th class="num">Market cap</th><th class="num">Cap / TVL</th></tr></thead>
         <tbody>${cal.comps.map((c) => `<tr><td>${esc(c.name)}</td><td class="num">${fmtUsd(c.tvl_usd)}</td><td class="num">${fmtUsd(c.mcap_usd)}</td><td class="num">${fmtMult(c.ratio)}</td></tr>`).join('')}</tbody></table>
-        <p class="note">The largest traded peers in this category by TVL; the price stands on all ${cal.peers} of them and their ${esc(cal.family ?? 'market')} family, not on these alone.</p>`
-        : '<p>No traded peer in this category carries a market cap in the snapshot, so its family and the market set the price.</p>'}
+        <p class="note">The largest traded peers in this category by TVL; the price stands on all ${cal.peers} of them, not on these alone.</p>`
+        : '<p>No traded peer in this category carries a market cap in the snapshot, so the whole market\u2019s median sets the price.</p>'}
       </div>
     </div><div>
       <div class="card"><h3>How to farm ${esc(r.name)}</h3>
@@ -267,27 +256,25 @@ function scatter() {
     const lx = axx + (bxx - axx) * 0.55, ly = ay + (by - ay) * 0.55;
     g += `<line class="guide" x1="${X(axx)}" y1="${Y(ay)}" x2="${X(bxx)}" y2="${Y(by)}"/><text x="${X(lx) + 6}" y="${Y(ly) - 5}">cap = ${ratio}× TVL</text>`;
   }
-  const dots = pts.map((p) => `<circle cx="${X(Math.log10(p.tvl_usd)).toFixed(1)}" cy="${Y(Math.log10(p.mcap_usd)).toFixed(1)}" r="3.4" fill="${famColor(p.family)}" opacity="0.82"><title>${esc(p.name)} — TVL ${fmtUsd(p.tvl_usd)}, cap ${fmtUsd(p.mcap_usd)}, ${fmtMult(p.ratio)}</title></circle>`).join('');
-  const fams = [...new Set(pts.map((p) => p.family).filter(Boolean))];
+  const dots = pts.map((p) => `<circle cx="${X(Math.log10(p.tvl_usd)).toFixed(1)}" cy="${Y(Math.log10(p.mcap_usd)).toFixed(1)}" r="3.4" fill="${p.ratio >= 1 ? '#3fb68b' : '#58a6ff'}" opacity="0.82"><title>${esc(p.name)} — TVL ${fmtUsd(p.tvl_usd)}, cap ${fmtUsd(p.mcap_usd)}, ${fmtMult(p.ratio)}</title></circle>`).join('');
   return `<svg class="scatter" viewBox="0 0 ${W} ${H}">${g}${dots}</svg>
-    <div class="famlegend">${fams.map((f) => `<span><span class="dot" style="background:${famColor(f)}"></span>${esc(f)}</span>`).join('')}<span>Each point is one traded protocol: its TVL against its market cap. The multiples are read off this cloud.</span></div>`;
+    <div class="famlegend"><span><span class="dot" style="background:#3fb68b"></span>cap above TVL</span><span><span class="dot" style="background:#58a6ff"></span>cap below TVL</span><span>Each point is one traded protocol: its TVL against its market cap. The multiples are read off this cloud.</span></div>`;
 }
 function renderCal() {
   $('view-cal').innerHTML = `
     <div class="card" style="margin-top:16px"><h3>The market the prices come from</h3>
     <p>Every multiple on the board is read off this snapshot, not asserted. A protocol whose token already trades
-    carries the market\u2019s own verdict: its market cap against its TVL. The radar reads those ratios at three levels —
-    a category\u2019s own peers, its economic family (lending with lending, staking with staking), and the whole market —
-    and shrinks each level toward the next by its peer count, so no thin category and no single wild print carries a
-    price. Ratios are winsorised to ${fmtMult(M.ratio_min)}…${fmtMult(M.ratio_max)} and multiples clamped to
-    ${fmtMult(M.multiple_min)}…${fmtMult(M.multiple_max)}. Exchanges are left out: an exchange token prices a business, not a protocol.</p>
+    carries the market\u2019s own verdict: its market cap against its TVL. Each category is priced from its own traded
+    peers\u2019 median ratio, shrunk toward the whole market\u2019s median by its peer count (${M.shrink_peers} phantom peers),
+    so a category priced by fifteen peers speaks for itself and one priced by a single peer borrows the market\u2019s
+    evidence. The same shrink on the peers\u2019 quartiles gives each multiple its stated range. Ratios are winsorised to
+    ${fmtMult(M.ratio_min)}…${fmtMult(M.ratio_max)} and multiples clamped to ${fmtMult(M.multiple_min)}…${fmtMult(M.multiple_max)}.
+    Exchanges are left out: an exchange token prices a business, not a protocol. A peer counts only with a positive
+    market cap: a record of zero is a dead token, not a price.</p>
     ${scatter()}</div>
-    <div class="card"><h3>Families — the middle level</h3>
-    <table class="mini"><thead><tr><th>Family</th><th class="num">Traded peers</th><th class="num">Pooled median</th><th class="num">Estimate used</th><th class="num">Categories</th><th class="num">Pre-token ranked</th></tr></thead>
-    <tbody>${R.families.map((f) => `<tr><td><span class="dot" style="background:${famColor(f.family)}"></span>${esc(f.family)}</td><td class="num">${f.peers}</td><td class="num">${f.median_ratio === null ? '—' : fmtMult(f.median_ratio)}</td><td class="num"><b>${fmtMult(f.estimate)}</b></td><td class="num">${f.categories}</td><td class="num">${f.pre_token}</td></tr>`).join('')}</tbody></table></div>
     <div class="card"><h3>Categories — the price of each kind</h3>
-    <table class="mini"><thead><tr><th>Category</th><th>Family</th><th class="num">Peers</th><th class="num">Peers\u2019 median</th><th class="num">Multiple used</th><th class="num">Range</th><th>Evidence</th><th class="num">Pre-token</th></tr></thead>
-    <tbody>${R.categories.map((c) => { const t = TIERS[c.tier]; return `<tr><td>${esc(c.category)}</td><td>${esc(c.family ?? '—')}</td><td class="num">${c.peers}</td><td class="num">${c.median_ratio === null ? '—' : fmtMult(c.median_ratio)}</td><td class="num"><b>${fmtMult(c.multiple)}</b></td><td class="num">${fmtMult(c.multiple_low)} – ${fmtMult(c.multiple_high)}</td><td class="ev"><span class="dot" style="background:${t.color}"></span>${t.label}</td><td class="num">${c.pre_token}</td></tr>`; }).join('')}</tbody></table></div>
+    <table class="mini"><thead><tr><th>Category</th><th class="num">Peers</th><th class="num">Peers\u2019 median</th><th class="num">Multiple used</th><th class="num">Range</th><th class="num">Pre-token</th></tr></thead>
+    <tbody>${R.categories.map((c) => `<tr><td>${esc(c.category)}</td><td class="num">${c.peers}</td><td class="num">${c.median_ratio === null ? '—' : fmtMult(c.median_ratio)}</td><td class="num"><b>${fmtMult(c.multiple)}</b></td><td class="num">${fmtMult(c.multiple_low)} – ${fmtMult(c.multiple_high)}</td><td class="num">${c.pre_token}</td></tr>`).join('')}</tbody></table></div>
     <div class="card"><h3>The traded set — the market\u2019s own values, kept apart from the ranking</h3>
     <p>These protocols already have their token. The board never ranks them; they are the evidence, not the quarry.</p>
     <table class="mini"><thead><tr><th>Protocol</th><th>Category</th><th class="num">TVL</th><th class="num">Market cap</th><th class="num">Cap / TVL</th><th class="num">7d</th></tr></thead>
@@ -306,27 +293,23 @@ function renderMethod() {
     radar rather than a list.</p>
     <h3>The value model (${R.model_version})</h3>
     <p class="formula">implied = TVL × price × momentum × endurance × reach</p>
-    <p><b>Price.</b> What the market itself pays per locked dollar for a launched protocol of this kind, read off the
-    snapshot\u2019s traded protocols at three levels: the category\u2019s own median market-cap / TVL, its economic family\u2019s
-    pooled median (the model\u2019s one piece of structure: a stated map from categories to families, by what a protocol
-    does with other people\u2019s capital), and the whole market\u2019s median. Each level is shrunk toward the next by its
-    peer count — the category toward its family with ${M.shrink_category} phantom peers, the family toward the market
-    with ${M.shrink_family} — so a category priced by fifteen peers speaks for itself, one priced by a single peer
-    borrows its family\u2019s evidence, and one with no peers is priced by the market alone. A category\u2019s own figures are
-    trusted only within ${M.influence_cap}× of the level above them (bounded influence): in this snapshot an oracle filed as a risk
-    curator prints 2.98× and a prediction market\u2019s only peer prints at the 8× winsor line, and neither is allowed to
-    set 34 curators\u2019 or a market\u2019s price. The same chain on the peers\u2019 quartiles gives each multiple a low and a high —
-    the range stated beside every value. Multiples are clamped to ${fmtMult(M.multiple_min)}…${fmtMult(M.multiple_max)}.
-    A peer counts only when its recorded market cap is positive: a record of zero is a dead or unpriced token, and
-    no price at all.</p>
-    <p><b>Momentum.</b> The week\u2019s TVL change, clamped to ${M.growth_floor}%…+${M.growth_cap}%, entering as
-    1 + ${M.momentum_weight} × sign(g) × √(|g|/100): the square root dampens, so a protocol that doubled in a week is not
-    priced at twice the momentum of one that rose a quarter.</p>
-    <p><b>Endurance.</b> ${M.maturity_floor} rising to ${M.maturity_floor + M.maturity_range} over ${M.maturity_cap_days} days of tokenless operation, on a log
-    scale (${M.unknown_age_days} days assumed when the record gives no start date): the first tokenless year says more
-    than the fifth, and a protocol that has run for years with no token has both the users and the reason to launch.</p>
-    <p><b>Reach.</b> 1 + ${M.breadth_coef} × (√chains − 1), chains capped at ${M.breadth_chain_cap}: each further chain reaches more
-    farmers, and each adds less than the one before.</p>
+    <p><b>Price.</b> What the market itself pays per locked dollar for a launched protocol of this kind: the median
+    market-cap / TVL of the snapshot\u2019s traded protocols in the same category, shrunk toward the whole market\u2019s
+    median by the peer count — the category\u2019s own median weighted by its peers, the market\u2019s by ${M.shrink_peers}
+    phantom peers — so a category priced by fifteen peers speaks for itself, one priced by a single peer borrows the
+    market\u2019s evidence, and one with no peers is priced by the market alone. The same shrink on the peers\u2019 quartiles
+    gives each multiple a low and a high — the range stated beside every value. Multiples are clamped to
+    ${fmtMult(M.multiple_min)}…${fmtMult(M.multiple_max)}, ratios winsorised to ${fmtMult(M.ratio_min)}…${fmtMult(M.ratio_max)}.
+    A peer counts only when its recorded market cap is positive: a record of zero (or the −1 one protocol carries) is
+    a dead or unpriced token — a placeholder, not a price. Beside every row the board states the peer count the price
+    stands on, so thin evidence is visible on the row itself rather than smoothed away.</p>
+    <p><b>Momentum.</b> The week\u2019s TVL change, clamped to ${M.growth_floor}%…+${M.growth_cap}%, entering linearly at
+    half weight: 1 + ${M.growth_weight} × g / 100.</p>
+    <p><b>Endurance.</b> ${M.maturity_floor} rising to ${M.maturity_floor + M.maturity_range} across ${M.maturity_days} days of tokenless operation
+    (${M.unknown_age_days} days assumed when the record gives no start date): a protocol that has run for years with no
+    token has both the users and the reason to launch.</p>
+    <p><b>Reach.</b> 1 + ${M.breadth_per_chain} × min(chains − 1, ${M.breadth_max_extra_chains}): each further chain a protocol is live on
+    reaches more farmers.</p>
     <h3>Who is ranked, who is set aside</h3>
     <p>Every protocol on the snapshot\u2019s watchlist is ranked — the watchlist is the floor. Below it, the radar adds every
     other protocol that records no token, except the ones that are not a launch of their own waiting to happen:

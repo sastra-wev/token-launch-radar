@@ -1,4 +1,4 @@
-// The token radar's model (radar-3): one sealed snapshot of the protocol universe in, one ranked
+// The token radar's model (radar-4): one sealed snapshot of the protocol universe in, one ranked
 // board out. Every figure on the board is derived from the snapshot's own records; no protocol name
 // is ever special-cased, and the same functions score every row.
 //
@@ -11,30 +11,21 @@
 // the snapshot's traded protocols, then adjusted for the protocol's own momentum, endurance and
 // reach:
 //
-//   price      = a three-level shrinkage estimate of the market-cap / TVL multiple:
-//                  category: the median ratio of the category's own traded peers
-//                  family:   the median ratio of its economic family's traded peers (lending with
-//                            lending, staking with staking), the level a thin category falls back to
-//                  market:   the median ratio of every traded protocol in the snapshot
-//                Each level is shrunk toward the next by its peer count (category toward family with
-//                6 phantom peers, family toward market with 12), so a category priced by fifteen
-//                peers speaks for itself, one priced by a single peer borrows its family's evidence,
-//                and one with no peers is priced by the market alone. A category's own figures are
-//                also trusted only within a factor of three of the level above them — bounded
-//                influence — and the same chain, applied to the peer ratios' quartiles, gives the
-//                multiple's low and high: the board's range.
-//                radar-2 priced a category from its own median alone, shrunk only toward the market:
-//                one wild peer print (an oracle filed as a curator, at 2.98x) set the price of all 34
-//                pre-token curators. The family level is radar-3's answer: no single print, and no
-//                single category, carries a price on its own.
-//   momentum   = 1 + 0.6 x sign(g) x sqrt(|g| / 100), g = the week's TVL change clamped to -60..+120
-//                per cent. The square root dampens: a protocol that doubled in a week is not priced
-//                at twice the momentum of one that rose a quarter.
-//   endurance  = 0.6 + 0.4 x ln(1 + age_days) / ln(1 + 1825): how long the protocol has run with no
-//                token, on a log scale — the first tokenless year says more than the fifth. A record
-//                with no start date is taken as 365 days.
-//   reach      = 1 + 0.09 x (sqrt(chains) - 1), chains capped at 25: each further chain a protocol
-//                is live on reaches more farmers, and each adds less than the one before.
+//   price      = the category's own price: the median market-cap / TVL ratio of the category's
+//                traded peers, shrunk toward the whole market's median by the peer count (4 phantom
+//                peers), so a category priced by fifteen peers speaks for itself, one priced by a
+//                single peer borrows the market's evidence, and one with no peers is priced by the
+//                market alone. The same single shrink, applied to the peers' quartiles, gives the
+//                multiple's low and high: the range stated beside every value. Multiples clamp to
+//                [0.05, 2.5], and beside every row the board states the count of traded peers the
+//                price stands on, so a reader can see how much evidence backs it.
+//                A peer counts only when it carries a positive market cap: a record of zero (or the
+//                -1 one protocol carries) is a dead or unpriced token — a placeholder in the record,
+//                not a price — and no evidence that the market values its kind at nothing.
+//   momentum   = 1 + 0.5 x g / 100, g = the week's TVL change clamped to -60..+120 per cent.
+//   endurance  = 0.6 + min(age_days, 1095) / 1095 x 0.4: how long the protocol has run with no
+//                token. A record with no start date is taken as 365 days.
+//   reach      = 1 + 0.04 x min(chains - 1, 4): a protocol live on more chains reaches more farmers.
 //   implied    = max(1, round(tvl x price x momentum x endurance x reach)), with the same product
 //                at the low and high multiples giving the row's stated range.
 //
@@ -71,18 +62,16 @@ export interface ModelConstants {
   ratio_max: number;
   multiple_min: number;
   multiple_max: number;
-  shrink_category: number;
-  shrink_family: number;
-  influence_cap: number;
-  momentum_weight: number;
+  shrink_peers: number;
+  growth_weight: number;
   growth_floor: number;
   growth_cap: number;
   maturity_floor: number;
   maturity_range: number;
-  maturity_cap_days: number;
+  maturity_days: number;
   unknown_age_days: number;
-  breadth_coef: number;
-  breadth_chain_cap: number;
+  breadth_per_chain: number;
+  breadth_max_extra_chains: number;
 }
 
 export const MODEL: ModelConstants = {
@@ -90,22 +79,20 @@ export const MODEL: ModelConstants = {
   ratio_max: 8,
   multiple_min: 0.05,
   multiple_max: 2.5,
-  shrink_category: 6,
-  shrink_family: 12,
-  influence_cap: 3,
-  momentum_weight: 0.6,
+  shrink_peers: 4,
+  growth_weight: 0.5,
   growth_floor: -60,
   growth_cap: 120,
   maturity_floor: 0.6,
   maturity_range: 0.4,
-  maturity_cap_days: 1825,
+  maturity_days: 1095,
   unknown_age_days: 365,
-  breadth_coef: 0.09,
-  breadth_chain_cap: 25,
+  breadth_per_chain: 0.04,
+  breadth_max_extra_chains: 4,
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-3';
+export const MODEL_VERSION = 'radar-4';
 
 /** How many traded protocols the calibration view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -118,39 +105,22 @@ export interface CompRow {
   ratio: number;
 }
 
-/** How much evidence prices a row: the peer count behind its category's own median. */
-export type EvidenceTier = 'deep' | 'standard' | 'thin' | 'market';
-
-/** A category's calibration: its peers, its family, and the multiple the chain settles on. */
+/** A category's calibration: its peers, its median price, the multiple in use and its range. */
 export interface CategoryCal {
   category: string;
-  family: string | null;
   peers: number;
   median_ratio: number | null;
   multiple: number;
   multiple_low: number;
   multiple_high: number;
-  priced_from: 'category' | 'family' | 'market';
-  tier: EvidenceTier;
   pre_token: number;
   comps: CompRow[];
-}
-
-/** A family's calibration: the pooled evidence of every category that does the same work. */
-export interface FamilyCal {
-  family: string;
-  peers: number;
-  median_ratio: number | null;
-  estimate: number;
-  categories: number;
-  pre_token: number;
 }
 
 /** One traded protocol as a point on the calibration scatter: the market's own verdict. */
 export interface PeerPoint {
   name: string;
   category: string | null;
-  family: string | null;
   tvl_usd: number;
   mcap_usd: number;
   ratio: number;
@@ -187,11 +157,7 @@ export interface BoardRow {
     multiple_low: number;
     multiple_high: number;
     category_peers: number;
-    family: string | null;
-    priced_from: 'category' | 'family' | 'market';
-    tier: EvidenceTier;
     growth_pct: number;
-    growth_root: number;
     growth_multiplier: number;
     maturity_multiplier: number;
     breadth_multiplier: number;
@@ -231,15 +197,12 @@ export interface RadarData {
     watchlist_size: number;
     live_size: number;
     peers: number;
-    categories_priced: number;
-    families: number;
     global_multiple: number;
     board_implied_total: number;
   };
   rows: RadarRow[];
   live: LiveRow[];
   categories: CategoryCal[];
-  families: FamilyCal[];
   peers_plot: PeerPoint[];
 }
 
@@ -330,121 +293,23 @@ function categoryKey(p: SnapshotProtocol): string {
   return p.category ?? 'Uncategorised';
 }
 
-/**
- * The model's one piece of structure: an economic family for a category, by what the protocol does
- * with other people's capital — lending with lending, staking with staking, venues with venues. It
- * names categories, never protocols, and every price still comes from the snapshot's own ratios: the
- * family is only the pool a thin category's evidence is read alongside. A category the map does not
- * name has no family and is priced from its own peers and the market alone.
- */
-const FAMILY_OF: Record<string, string> = {
-  'Lending': 'Credit',
-  'CDP': 'Credit',
-  'CDP Manager': 'Credit',
-  'Uncollateralized Lending': 'Credit',
-  'Collateral Markets': 'Credit',
-  'Collateral Management': 'Credit',
-  'CeDeFi': 'Credit',
-  'Dexs': 'Spot exchange',
-  'OTC Marketplace': 'Spot exchange',
-  'NFT Marketplace': 'Spot exchange',
-  'Derivatives': 'Derivatives',
-  'Options': 'Derivatives',
-  'Options Vault': 'Derivatives',
-  'Interest Rate Derivatives': 'Derivatives',
-  'Synthetics': 'Derivatives',
-  'Prediction Market': 'Derivatives',
-  'Risk Curators': 'Capital management',
-  'Onchain Capital Allocator': 'Capital management',
-  'Yield': 'Capital management',
-  'Yield Aggregator': 'Capital management',
-  'Liquidity Manager': 'Capital management',
-  'Indexes': 'Capital management',
-  'Basis Trading': 'Capital management',
-  'Farm': 'Capital management',
-  'Leveraged Farming': 'Capital management',
-  'Liquid Staking': 'Staking',
-  'Liquid Restaking': 'Staking',
-  'Restaking': 'Staking',
-  'Restaked BTC': 'Staking',
-  'Staking Pool': 'Staking',
-  'Anchor BTC': 'Staking',
-  'Decentralized BTC': 'Staking',
-  'Bridge': 'Bridging',
-  'Cross Chain Bridge': 'Bridging',
-  'Dual-Token Stablecoin': 'Money',
-  'Stablecoin Wrapper': 'Money',
-  'Stablecoin Issuer': 'Money',
-  'Algo-Stables': 'Money',
-  'Reserve Currency': 'Money',
-  'Chain': 'Networks & services',
-  'Privacy': 'Networks & services',
-  'Token Locker': 'Networks & services',
-  'Launchpad': 'Networks & services',
-  'AI Agents': 'Networks & services',
-  'Decentralized AI': 'Networks & services',
-  'DOR': 'Networks & services',
-  'Insurance': 'Networks & services',
-  'Payments': 'Networks & services',
-  'Crypto Card Issuer': 'Networks & services',
-  'Governance Incentives': 'Networks & services',
-};
-
-/** The family a category belongs to, or null when the map does not name it. */
-function familyOf(category: string): string | null {
-  return FAMILY_OF[category] ?? null;
-}
-
-/** A level's evidence: its peer count and the median and quartiles of its winsorised ratios. */
-interface LevelStats {
-  peers: number;
-  median: number;
-  q25: number;
-  q75: number;
-}
-
-/** The stats of one pool of ratios; an empty pool borrows the level above it whole. */
-function levelStats(ratios: number[], above: LevelStats | null): LevelStats {
-  if (ratios.length === 0) {
-    if (above === null) return { peers: 0, median: 0.25, q25: 0.1, q75: 0.5 };
-    return { peers: 0, median: above.median, q25: above.q25, q75: above.q75 };
-  }
-  return {
-    peers: ratios.length,
-    median: median(ratios)!,
-    q25: quantile(ratios, 0.25)!,
-    q75: quantile(ratios, 0.75)!,
-  };
-}
-
-/** Shrink one level's stats toward the level above it, component by component, by peer count. */
-function shrinkToward(level: LevelStats, above: LevelStats, phantom: number): { median: number; q25: number; q75: number } {
-  const w = level.peers + phantom;
-  if (w === 0) return { median: above.median, q25: above.q25, q75: above.q75 };
-  const mix = (own: number, up: number): number => (level.peers * own + phantom * up) / w;
-  return { median: mix(level.median, above.median), q25: mix(level.q25, above.q25), q75: mix(level.q75, above.q75) };
-}
-
-/** The calibration the model settles on: per-category prices, per-family evidence, the market level. */
+/** The calibration the model settles on: per-category prices and the market level behind them. */
 export interface Calibration {
   categories: Map<string, CategoryCal>;
-  families: Map<string, FamilyCal>;
-  global: LevelStats;
+  globalMedian: number;
   peersPlot: PeerPoint[];
 }
 
 /**
- * The market's own prices, read off the snapshot in three levels. Every traded protocol with a TVL
- * and a positive market cap (exchanges set aside, their market caps price a business, not a
- * protocol) gives a market-cap / TVL ratio, winsorised so one wild print cannot carry a pool. The market level is every ratio's median;
- * a family's estimate shrinks its pooled median toward the market by 12 phantom peers; a category's
- * multiple shrinks its own median toward its family's estimate by 6 — and the same chain on the
- * quartiles gives the multiple's low and high, the board's stated range.
+ * The market's own prices, read off the snapshot. Every traded protocol with a TVL and a positive
+ * market cap (exchanges set aside, their market caps price a business, not a protocol) gives a
+ * market-cap / TVL ratio, winsorised so one wild print cannot carry a pool. A category's multiple
+ * is its peers' median ratio shrunk toward the market's median by the peer count; the same single
+ * shrink on the peers' quartiles gives the multiple's low and high, the board's stated range.
  */
 export function calibrate(snapshot: Snapshot, model: ModelConstants = MODEL): Calibration {
   const ratiosByCategory = new Map<string, number[]>();
   const compsByCategory = new Map<string, CompRow[]>();
-  const ratiosByFamily = new Map<string, number[]>();
   const allRatios: number[] = [];
   const peersPlot: PeerPoint[] = [];
   for (const p of snapshot.protocols) {
@@ -454,7 +319,6 @@ export function calibrate(snapshot: Snapshot, model: ModelConstants = MODEL): Ca
     if (p.mcap_usd === null || p.mcap_usd <= 0 || p.tvl_usd <= 0 || p.category === 'CEX') continue;
     const ratio = Math.min(model.ratio_max, Math.max(model.ratio_min, p.mcap_usd / p.tvl_usd));
     const key = categoryKey(p);
-    const family = familyOf(key);
     allRatios.push(ratio);
     const list = ratiosByCategory.get(key) ?? [];
     list.push(ratio);
@@ -462,87 +326,45 @@ export function calibrate(snapshot: Snapshot, model: ModelConstants = MODEL): Ca
     const comps = compsByCategory.get(key) ?? [];
     comps.push({ name: p.name, tvl_usd: p.tvl_usd, mcap_usd: p.mcap_usd, ratio: round4(ratio) });
     compsByCategory.set(key, comps);
-    if (family !== null) {
-      const fam = ratiosByFamily.get(family) ?? [];
-      fam.push(ratio);
-      ratiosByFamily.set(family, fam);
-    }
-    peersPlot.push({ name: p.name, category: p.category, family, tvl_usd: p.tvl_usd, mcap_usd: p.mcap_usd, ratio: round4(ratio) });
+    peersPlot.push({ name: p.name, category: p.category, tvl_usd: p.tvl_usd, mcap_usd: p.mcap_usd, ratio: round4(ratio) });
   }
-  const global = levelStats(allRatios, null);
+  const globalMedian = median(allRatios) ?? 0.25;
+  const globalQ25 = quantile(allRatios, 0.25) ?? globalMedian;
+  const globalQ75 = quantile(allRatios, 0.75) ?? globalMedian;
 
   const preTokenByCategory = new Map<string, number>();
-  const catsByFamily = new Map<string, Set<string>>();
   for (const p of snapshot.protocols) {
-    const key = categoryKey(p);
-    const family = familyOf(key);
-    if (family !== null) {
-      const set = catsByFamily.get(family) ?? new Set<string>();
-      set.add(key);
-      catsByFamily.set(family, set);
-    }
     if (!isPreToken(p)) continue;
+    const key = categoryKey(p);
     preTokenByCategory.set(key, (preTokenByCategory.get(key) ?? 0) + 1);
   }
 
   const clampMultiple = (n: number): number => Math.min(model.multiple_max, Math.max(model.multiple_min, n));
-  const familyEstimate = new Map<string, { stats: LevelStats; estimate: { median: number; q25: number; q75: number } }>();
-  const families = new Map<string, FamilyCal>();
-  for (const [family, ratios] of ratiosByFamily) {
-    const stats = levelStats(ratios, global);
-    const estimate = shrinkToward(stats, global, model.shrink_family);
-    familyEstimate.set(family, { stats, estimate });
-    families.set(family, {
-      family,
-      peers: stats.peers,
-      median_ratio: round4(stats.median),
-      estimate: round4(clampMultiple(estimate.median)),
-      categories: catsByFamily.get(family)?.size ?? 0,
-      pre_token: [...(catsByFamily.get(family) ?? [])].reduce((n, c) => n + (preTokenByCategory.get(c) ?? 0), 0),
-    });
-  }
+  // One shrink, applied to the median and to both quartiles alike: the category's own figure
+  // weighted by its peer count, the market's by the phantom count; no peers, the market's figure.
+  const shrink = (own: number, market: number, peers: number): number =>
+    peers === 0 ? market : (peers * own + model.shrink_peers * market) / (peers + model.shrink_peers);
 
   const categories = new Map<string, CategoryCal>();
   const keys = new Set([...ratiosByCategory.keys(), ...preTokenByCategory.keys()]);
   for (const key of keys) {
     const ratios = ratiosByCategory.get(key) ?? [];
-    const family = familyOf(key);
-    const fam = family === null ? undefined : familyEstimate.get(family);
-    const above: LevelStats =
-      fam === undefined
-        ? global
-        : { peers: fam.stats.peers, median: fam.estimate.median, q25: fam.estimate.q25, q75: fam.estimate.q75 };
-    // Bounded influence: a category's own figures are trusted only within the cap of the level
-    // above it, so one wild peer print — an oracle filed as a curator at 2.98x, a prediction
-    // market's peer at the 8x winsor line — cannot carry the category's price on its own.
-    const bound = (x: number): number =>
-      Math.min(above.median * model.influence_cap, Math.max(above.median / model.influence_cap, x));
-    const rawStats = levelStats(ratios, above);
-    const stats: LevelStats =
-      ratios.length === 0
-        ? rawStats
-        : { peers: rawStats.peers, median: bound(rawStats.median), q25: bound(rawStats.q25), q75: bound(rawStats.q75) };
-    const settled = shrinkToward(stats, above, model.shrink_category);
-    const multiple = clampMultiple(settled.median);
-    const low = Math.min(multiple, clampMultiple(settled.q25));
-    const high = Math.max(multiple, clampMultiple(settled.q75));
-    const tier: EvidenceTier = stats.peers >= 8 ? 'deep' : stats.peers >= 3 ? 'standard' : stats.peers >= 1 ? 'thin' : 'market';
+    const multiple = clampMultiple(shrink(median(ratios) ?? globalMedian, globalMedian, ratios.length));
+    const low = Math.min(multiple, clampMultiple(shrink(quantile(ratios, 0.25) ?? globalQ25, globalQ25, ratios.length)));
+    const high = Math.max(multiple, clampMultiple(shrink(quantile(ratios, 0.75) ?? globalQ75, globalQ75, ratios.length)));
     categories.set(key, {
       category: key,
-      family,
-      peers: stats.peers,
-      median_ratio: ratios.length === 0 ? null : round4(rawStats.median),
+      peers: ratios.length,
+      median_ratio: ratios.length === 0 ? null : round4(median(ratios)!),
       multiple: round4(multiple),
       multiple_low: round4(low),
       multiple_high: round4(high),
-      priced_from: stats.peers >= 3 ? 'category' : fam !== undefined ? 'family' : 'market',
-      tier,
       pre_token: preTokenByCategory.get(key) ?? 0,
       comps: (compsByCategory.get(key) ?? []).sort((a, b) => b.tvl_usd - a.tvl_usd).slice(0, 5),
     });
   }
   peersPlot.sort((a, b) => b.tvl_usd - a.tvl_usd);
-  return { categories, families, global, peersPlot };
+  return { categories, globalMedian, peersPlot };
 }
 
 /** The model's parts for one protocol: its price, its range, its three adjustments, its value. */
@@ -556,7 +378,6 @@ export function impliedValue(
   impliedLow: number;
   impliedHigh: number;
   growthPct: number;
-  growthRoot: number;
   growthMult: number;
   maturityMult: number;
   breadthMult: number;
@@ -564,14 +385,13 @@ export function impliedValue(
 } {
   const age = ageDays(asOf, protocol.listed_at);
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, finite(protocol.change_7d, 0)));
-  const growthRoot = Math.sign(growthPct) * Math.sqrt(Math.abs(growthPct) / 100);
-  const growthMult = 1 + model.momentum_weight * growthRoot;
+  const growthMult = 1 + (growthPct / 100) * model.growth_weight;
   const ageForModel = age ?? model.unknown_age_days;
   const maturityMult =
     model.maturity_floor +
-    (Math.log1p(Math.max(ageForModel, 0)) / Math.log1p(model.maturity_cap_days)) * model.maturity_range;
-  const chainsCounted = Math.min(Math.max(protocol.chains.length, 1), model.breadth_chain_cap);
-  const breadthMult = 1 + model.breadth_coef * (Math.sqrt(chainsCounted) - 1);
+    (Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
+  const extraChains = Math.min(Math.max(protocol.chains.length - 1, 0), model.breadth_max_extra_chains);
+  const breadthMult = 1 + model.breadth_per_chain * extraChains;
   const product = (multiple: number): number =>
     Math.max(1, Math.round(protocol.tvl_usd * multiple * growthMult * maturityMult * breadthMult));
   return {
@@ -579,7 +399,6 @@ export function impliedValue(
     impliedLow: product(cal.multiple_low),
     impliedHigh: product(cal.multiple_high),
     growthPct,
-    growthRoot,
     growthMult,
     maturityMult,
     breadthMult,
@@ -634,11 +453,7 @@ export function buildBoard(
       multiple_low: s.cal.multiple_low,
       multiple_high: s.cal.multiple_high,
       category_peers: s.cal.peers,
-      family: s.cal.family,
-      priced_from: s.cal.priced_from,
-      tier: s.cal.tier,
       growth_pct: s.growthPct,
-      growth_root: round4(s.growthRoot),
       growth_multiplier: round4(s.growthMult),
       maturity_multiplier: round4(s.maturityMult),
       breadth_multiplier: round4(s.breadthMult),
@@ -648,7 +463,6 @@ export function buildBoard(
   }));
 }
 
-/** A step as one string: its action, then its cost and time, within the gate's 20..600 characters. */
 export function stepText(step: FarmStep): string {
   let s = `${step.text} Cost: ${step.cost}. Time: ${step.time}.`;
   if (s.length > 600) s = `${s.slice(0, 596)}...`;
@@ -946,9 +760,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
       watchlist_size: snapshot.watchlist.length,
       live_size: live.length,
       peers: calibration.peersPlot.length,
-      categories_priced: calibration.categories.size,
-      families: calibration.families.size,
-      global_multiple: round4(calibration.global.median),
+      global_multiple: round4(calibration.globalMedian),
       board_implied_total: board.reduce((n, r) => n + r.implied_value_usd, 0),
     },
     rows: board.map((r) => ({ ...r, farm: farmBySlug.get(r.slug)! })),
@@ -956,7 +768,6 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     categories: [...calibration.categories.values()]
       .filter((c) => c.peers > 0 || c.pre_token > 0)
       .sort((a, b) => b.multiple - a.multiple),
-    families: [...calibration.families.values()].sort((a, b) => b.peers - a.peers),
     peers_plot: calibration.peersPlot,
   };
   return { board, radar };
@@ -1000,6 +811,7 @@ export function parseSnapshot(text: string): Snapshot {
   });
   return {
     as_of: o.as_of,
+    source: o.source,
     floor_usd: o.floor_usd,
     protocols,
     watchlist: o.watchlist as string[],

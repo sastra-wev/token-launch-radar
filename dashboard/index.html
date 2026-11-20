@@ -67,7 +67,7 @@
     </div>
     <div class="sandbox">
       <span class="sandbox-label">Model sandbox — re-rank the board live:</span>
-      <label>Momentum weight <input id="sgw" type="range" min="0" max="1" step="0.05" value="0.6"><b id="sgwv">0.60</b></label>
+      <label>Momentum weight <input id="sgw" type="range" min="0" max="1" step="0.05" value="0.5"><b id="sgwv">0.50</b></label>
       <label>Value scale <input id="sscale" type="range" min="0.25" max="3" step="0.05" value="1"><b id="sscalev">1.00×</b></label>
       <button id="sreset" class="mini">Reset to the stated model</button>
       <span class="sandbox-note">board.json always carries the stated model; the sandbox is for your own what-ifs.</span>
@@ -78,12 +78,12 @@
         <thead><tr>
           <th class="num" data-sort="implied">#</th><th data-sort="name">Protocol</th><th>Category</th><th>Chains</th>
           <th class="num" data-sort="tvl">TVL</th><th class="num" data-sort="growth">7d</th>
-          <th class="num" data-sort="implied">Implied value</th><th class="num" data-sort="multiple">×TVL</th><th>Evidence</th><th></th>
+          <th class="num" data-sort="implied">Implied value</th><th class="num" data-sort="multiple">×TVL</th><th>Peers</th><th></th>
         </tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
-    <p class="legend" id="tierlegend"></p>
+    <p class="legend" id="peerlegend"></p>
   </section>
 
   <section id="view-detail" hidden></section>
