@@ -1,4 +1,4 @@
-// The token radar's model (radar-4): one sealed snapshot of the protocol universe in, one ranked
+// The token radar's model (radar-5): one sealed snapshot of the protocol universe in, one ranked
 // board out. Every figure on the board is derived from the snapshot's own records; no protocol name
 // is ever special-cased, and the same functions score every row.
 //
@@ -22,7 +22,10 @@
 //                A peer counts only when it carries a positive market cap: a record of zero (or the
 //                -1 one protocol carries) is a dead or unpriced token — a placeholder in the record,
 //                not a price — and no evidence that the market values its kind at nothing.
-//   momentum   = 1 + 0.5 x g / 100, g = the week's TVL change clamped to -60..+120 per cent.
+//   momentum   = 1 + 0.5 x g / 100, g = the week's TVL change clamped to -60..+120 per cent,
+//                scaled by size credibility: a week's move counts as evidence in proportion to
+//                the size it moves — credibility = TVL / (TVL + $50M), so at $50M of TVL (the
+//                snapshot's own watchlist floor) it counts in full and fades smoothly below it.
 //   endurance  = 0.6 + min(age_days, 1095) / 1095 x 0.4: how long the protocol has run with no
 //                token. A record with no start date is taken as 365 days.
 //   reach      = 1 + 0.04 x min(chains - 1, 4): a protocol live on more chains reaches more farmers.
@@ -64,6 +67,7 @@ export interface ModelConstants {
   multiple_max: number;
   shrink_peers: number;
   growth_weight: number;
+  growth_scale_usd: number;
   growth_floor: number;
   growth_cap: number;
   maturity_floor: number;
@@ -81,6 +85,7 @@ export const MODEL: ModelConstants = {
   multiple_max: 2.5,
   shrink_peers: 4,
   growth_weight: 0.5,
+  growth_scale_usd: 50_000_000,
   growth_floor: -60,
   growth_cap: 120,
   maturity_floor: 0.6,
@@ -92,7 +97,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-4';
+export const MODEL_VERSION = 'radar-5';
 
 /** How many traded protocols the calibration view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -158,6 +163,8 @@ export interface BoardRow {
     multiple_high: number;
     category_peers: number;
     growth_pct: number;
+    growth_raw_pct: number;
+    growth_scale: number;
     growth_multiplier: number;
     maturity_multiplier: number;
     breadth_multiplier: number;
@@ -378,13 +385,20 @@ export function impliedValue(
   impliedLow: number;
   impliedHigh: number;
   growthPct: number;
+  growthRawPct: number;
+  growthScale: number;
   growthMult: number;
   maturityMult: number;
   breadthMult: number;
   age: number | null;
 } {
   const age = ageDays(asOf, protocol.listed_at);
-  const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, finite(protocol.change_7d, 0)));
+  const rawPct = Math.min(model.growth_cap, Math.max(model.growth_floor, finite(protocol.change_7d, 0)));
+  // Size credibility: a week's TVL move is evidence in proportion to the size it moves — at
+  // $50M of TVL (the snapshot's own watchlist floor, growth_scale_usd) it counts in full and
+  // fades smoothly below it. The pricing spine, endurance and reach are untouched.
+  const credibility = protocol.tvl_usd / (protocol.tvl_usd + model.growth_scale_usd);
+  const growthPct = rawPct * credibility;
   const growthMult = 1 + (growthPct / 100) * model.growth_weight;
   const ageForModel = age ?? model.unknown_age_days;
   const maturityMult =
@@ -399,6 +413,8 @@ export function impliedValue(
     impliedLow: product(cal.multiple_low),
     impliedHigh: product(cal.multiple_high),
     growthPct,
+    growthRawPct: rawPct,
+    growthScale: credibility,
     growthMult,
     maturityMult,
     breadthMult,
@@ -454,6 +470,8 @@ export function buildBoard(
       multiple_high: s.cal.multiple_high,
       category_peers: s.cal.peers,
       growth_pct: s.growthPct,
+      growth_raw_pct: round4(s.growthRawPct),
+      growth_scale: round4(s.growthScale),
       growth_multiplier: round4(s.growthMult),
       maturity_multiplier: round4(s.maturityMult),
       breadth_multiplier: round4(s.breadthMult),
