@@ -210,7 +210,7 @@ function renderDetail(slug) {
         peers): ${cal && cal.peers > 0 ? `here ${cal.peers} traded peer${cal.peers === 1 ? '' : 's'} carry the category\u2019s median of
         ${cal.median_ratio !== null ? fmtMult(cal.median_ratio) : '—'} most of the way, and the market pulls it the rest. ` : `here the category has no
         traded peer of its own, so the market\u2019s median is the price. `}Momentum takes the week\u2019s TVL change
-        (${fmtPct(r.change_7d)}) at half weight, scaled by size credibility (×${m.growth_scale.toFixed(2)} at this TVL; full weight from $50M up), clamped to ${M.growth_floor}%…+${M.growth_cap}%. Endurance rises from
+        (${fmtPct(r.change_7d)}) at half weight, clamped to ${M.growth_floor}%…+${M.growth_cap}%. Endurance rises from
         ${M.maturity_floor} to ${M.maturity_floor + M.maturity_range} across ${M.maturity_days} tokenless days; reach adds
         ${Math.round(M.breadth_per_chain * 100)}% for each extra chain, up to ${M.breadth_max_extra_chains}.</p>
         <div class="sens">
@@ -304,7 +304,7 @@ function renderMethod() {
     a dead or unpriced token — a placeholder, not a price. Beside every row the board states the peer count the price
     stands on, so thin evidence is visible on the row itself rather than smoothed away.</p>
     <p><b>Momentum.</b> The week\u2019s TVL change, clamped to ${M.growth_floor}%…+${M.growth_cap}%, entering linearly at
-    half weight: 1 + ${M.growth_weight} × g / 100, where g is the clamped change scaled by size credibility: g counts in full at ${fmtUsd(M.growth_scale_usd)} of TVL and fades smoothly below it (credibility = TVL / (TVL + ${fmtUsd(M.growth_scale_usd)})), because a swing on a small pool is noise and on a large one is signal. The entry\u2019s program (lib/model.ts) prices with calibrate() and impliedValue() and writes each plan with farmSteps(); this page\u2019s sandbox re-ranks with the same arithmetic.</p>
+    half weight: 1 + ${M.growth_weight} × g / 100.</p>
     <p><b>Endurance.</b> ${M.maturity_floor} rising to ${M.maturity_floor + M.maturity_range} across ${M.maturity_days} days of tokenless operation
     (${M.unknown_age_days} days assumed when the record gives no start date): a protocol that has run for years with no
     token has both the users and the reason to launch.</p>
