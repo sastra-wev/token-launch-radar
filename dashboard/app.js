@@ -337,7 +337,6 @@ function renderMethod() {
    the controls before the first render. */
 (function preset() {
   const p = new URLSearchParams(location.search);
-  if (['q', 'cat', 'chain', 'band', 'wl', 'sort'].some((k) => p.has(k))) document.body.classList.add('linked');
   if (p.get('q')) { state.q = p.get('q'); $('q').value = state.q; }
   if (p.get('cat') && cats.includes(p.get('cat'))) { state.cat = p.get('cat'); $('fcat').value = state.cat; }
   if (p.get('chain') && chains.includes(p.get('chain'))) { state.chain = p.get('chain'); $('fchain').value = state.chain; }
@@ -353,13 +352,10 @@ function route() {
   const detail = hash.match(/^#\/p\/(.+)$/);
   for (const id of ['view-board', 'view-detail', 'view-cal', 'view-method']) $(id).hidden = true;
   let tab = 'board';
-  let viewClass = 'view-board';
-  if (detail) { renderDetail(decodeURIComponent(detail[1])); $('view-detail').hidden = false; tab = ''; viewClass = 'view-detail'; }
-  else if (hash === '#/cal') { renderCal(); $('view-cal').hidden = false; tab = 'cal'; viewClass = 'view-cal'; }
-  else if (hash === '#/method') { renderMethod(); $('view-method').hidden = false; tab = 'method'; viewClass = 'view-method'; }
+  if (detail) { renderDetail(decodeURIComponent(detail[1])); $('view-detail').hidden = false; tab = ''; }
+  else if (hash === '#/cal') { renderCal(); $('view-cal').hidden = false; tab = 'cal'; }
+  else if (hash === '#/method') { renderMethod(); $('view-method').hidden = false; tab = 'method'; }
   else { $('view-board').hidden = false; }
-  document.body.classList.remove('view-board', 'view-detail', 'view-cal', 'view-method');
-  document.body.classList.add(viewClass);
   for (const b of document.querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.view === tab);
   window.scrollTo(0, 0);
 }

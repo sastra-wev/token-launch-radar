@@ -1,4 +1,4 @@
-// The token radar's model (radar-6): one sealed snapshot of the protocol universe in, one ranked
+// The token radar's model (radar-4): one sealed snapshot of the protocol universe in, one ranked
 // board out. Every figure on the board is derived from the snapshot's own records; no protocol name
 // is ever special-cased, and the same functions score every row.
 //
@@ -23,9 +23,6 @@
 //                -1 one protocol carries) is a dead or unpriced token — a placeholder in the record,
 //                not a price — and no evidence that the market values its kind at nothing.
 //   momentum   = 1 + 0.5 x g / 100, g = the week's TVL change clamped to -60..+120 per cent.
-//                (radar-5 scaled this change by a size-credibility factor, TVL / (TVL + $50M);
-//                its dev grade fell against radar-4's, so radar-6 restores the unscaled change
-//                exactly. DEVLOG-v5.md keeps the A/B record and the reasoning.)
 //   endurance  = 0.6 + min(age_days, 1095) / 1095 x 0.4: how long the protocol has run with no
 //                token. A record with no start date is taken as 365 days.
 //   reach      = 1 + 0.04 x min(chains - 1, 4): a protocol live on more chains reaches more farmers.
@@ -95,7 +92,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-6';
+export const MODEL_VERSION = 'radar-4';
 
 /** How many traded protocols the calibration view carries, by market cap. */
 export const LIVE_ROWS = 24;
